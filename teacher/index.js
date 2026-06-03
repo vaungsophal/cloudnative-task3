@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const dotenv = require('dotenv');
 const connectDB = require('./DBconnect');
 const verifyTeacher = require('./middleware');
