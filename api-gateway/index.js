@@ -1,34 +1,61 @@
 const express = require('express');
-const httpProxy = require('http-proxy');
-const dotenv = require('dotenv');
+const app = express()
 
-dotenv.config();
+//USE PROXY SERVER TO REDIRECT THE INCOMMING REQUEST
+const httpProxy = require('http-proxy')
+const proxy = httpProxy.createProxyServer();
 
-const app = express();
-const proxy = httpProxy.createProxyServer({ changeOrigin: true });
+const jwt = require('jsonwebtoken')
+require('dotenv').config()
+const JWT_SECRET = process.env.JWT_SECRET;
 
-app.get('/', (req, res) => {
-    res.send('API Gateway is running!');
-});
+function authToken(req, res, next) {
+    console.log(req.headers.authorization)
+    const header = req?.headers.authorization;
+    const token = header && header.split(' ')[1];
 
-const routes = [
-    { prefix: '/api/register', target: process.env.REGISTRATION_SERVICE },
-    { prefix: '/api/users', target: process.env.REGISTRATION_SERVICE },
-    { prefix: '/api/login', target: process.env.AUTHENTICATION_SERVICE },
-    { prefix: '/api/student', target: process.env.STUDENT_SERVICE },
-    { prefix: '/api/teacher', target: process.env.TEACHER_SERVICE },
-];
+    if (token == null) return res.status(401).json("Please send token");
 
-app.use((req, res) => {
-    for (const route of routes) {
-        if (req.path.startsWith(route.prefix)) {
-            return proxy.web(req, res, { target: route.target });
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json("Invalid token", err);
+        req.user = user;
+        next()
+    })
+}
+
+function authRole(role) {
+    return (req, res, next) => {
+        if (req.user.role !== role) {
+            return res.status(403).json("Unauthorized");
         }
+        next();
     }
-    res.status(404).json({ message: 'Route not found' });
-});
+}
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`API Gateway running on port ${PORT}`);
-});
+//REDIRECT TO THE REGISTRATION MICROSERVICE
+app.use('/api/register', (req, res) => {
+    console.log("INSIDE API GATEWAY REGISTER ROUTE")
+    proxy.web(req, res, { target: process.env.REGISTRATION_SERVICE });
+})
+
+//REDIRECT TO THE LOGIN(Authentication) MICROSERVICE
+app.use('/api/login', (req, res) => {
+    console.log("INSIDE API GATEWAY LOGIN ROUTE")
+    proxy.web(req, res, { target: process.env.AUTHENTICATION_SERVICE });
+})
+
+//REDIRECT TO THE STUDENT MICROSERVICE
+app.use('/api/student', authToken, authRole('student'), (req, res) => {
+    console.log("INSIDE API GATEWAY STUDENT ROUTE")
+    proxy.web(req, res, { target: process.env.STUDENT_SERVICE });
+})
+
+//REDIRECT TO THE TEACHER MICROSERVICE
+app.use('/api/teacher', authToken, authRole('teacher'), (req, res) => {
+    console.log("INSIDE API GATEWAY TEACHER ROUTE")
+    proxy.web(req, res, { target: process.env.TEACHER_SERVICE });
+})
+
+app.listen(process.env.PORT || 4000, () => {
+    console.log("API Gateway Service is running on PORT NO : " + (process.env.PORT || 4000))
+})
